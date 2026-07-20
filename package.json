@@ -1,0 +1,51 @@
+{
+  "name": "@blackforge/cli",
+  "version": "0.1.0",
+  "description": "Terminal client for the BlackForge crypto market-data API — catalog, symbols, latest bucket, time series and usage, as table, JSON or CSV.",
+  "type": "module",
+  "bin": {
+    "blackforge": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "blackforge",
+    "crypto",
+    "market-data",
+    "cli",
+    "orderbook",
+    "microstructure"
+  ],
+  "author": "BlackForge",
+  "license": "MIT",
+  "homepage": "https://blackforge.so",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blackforge-so/cli.git"
+  },
+  "dependencies": {
+    "cli-table3": "^0.6.5",
+    "commander": "^13.1.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
