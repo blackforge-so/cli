@@ -1,4 +1,4 @@
-# @blackforge/cli
+# @blackforge-so/cli
 
 A terminal client for the [BlackForge](https://blackforge.so) crypto **market-data** API.
 Discover the catalog, list a venue's pairs, pull the latest 5-minute bucket or a time
@@ -16,13 +16,13 @@ server use: one key, one meter, more surfaces.
 Run it without installing:
 
 ```bash
-npx -y @blackforge/cli catalog
+npx -y @blackforge-so/cli catalog
 ```
 
 Or install it globally so `blackforge` is on your PATH:
 
 ```bash
-npm i -g @blackforge/cli
+npm i -g @blackforge-so/cli
 blackforge --help
 ```
 
@@ -117,7 +117,7 @@ emptiness so it never looks like missing data.
 ## Where to get a key
 
 Mint one at **[app.blackforge.so/keys](https://app.blackforge.so/keys)**. The same key works
-across the CLI, the [MCP server](https://www.npmjs.com/package/@blackforge/mcp), and the REST
+across the CLI, the [MCP server](https://www.npmjs.com/package/@blackforge-so/mcp), and the REST
 API — one meter across every surface.
 
 ## License
