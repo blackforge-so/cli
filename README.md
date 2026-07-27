@@ -5,8 +5,9 @@ Discover the catalog, list a venue's pairs, pull the latest 5-minute bucket or a
 series, and check your usage — as a table, JSON, or CSV, straight from your shell.
 
 BlackForge is raw market-data intelligence: **9 spot venues** (`binance, bitget, bybit,
-coinbase, gate, kraken, kucoin, mexc, okx`), ~13,800 pairs, up to **117 columns** per
-`(exchange, symbol)` per closed 5-minute window. Every column is a **measurement** — for
+coinbase, gate, kraken, kucoin, mexc, okx`) and every column it measures, per
+`(exchange, symbol)` per closed 5-minute window — run `blackforge catalog` for the exact
+list. Every column is a **measurement** — for
 example, the median lifetime of a resting price level, or taker buy-vs-sell volume — not a
 trade call. The CLI is a thin HTTP wrapper over the same `/v1` API the dashboard and MCP
 server use: one key, one meter, more surfaces.
@@ -69,7 +70,7 @@ feed to `pandas`. Swap `--metric` for any key from `blackforge metrics`.
 | `blackforge metrics` | Metric definitions only (`key`, `label`, `family`, `unit`, `minPlan`). **No key required.** |
 | `blackforge symbols --exchange <v>` | List the pairs a venue trades. |
 | `blackforge latest --exchange <v> --symbol <s> [--columns a,b,c]` | The latest 5-minute bucket. |
-| `blackforge series --exchange <v> --symbol <s> --metric <k> [--interval 5m\|1h\|1d] [--from <iso>] [--to <iso>]` | A time series of one metric. |
+| `blackforge series --exchange <v> --symbol <s> --metric <k> [--interval 5m\|1h\|1d] [--from <iso>] [--to <iso>] [--quality]` | A time series of one metric. |
 | `blackforge usage` | Your recent request counts and remaining row quota. |
 
 ### Global options
@@ -89,6 +90,30 @@ feed to `pandas`. Swap `--metric` for any key from `blackforge metrics`.
   blackforge latest -e binance -s BTCUSDT --output json | jq '.values.upDepth30'
   ```
 - **`csv`** — a header row plus one row per record, ready for a spreadsheet.
+
+## Data quality
+
+When the API reports a row's measurement quality, `latest` prints one extra header line in
+`table` format:
+
+```
+quality  BOOK_DESYNCED, BOOK_CROSSED — affects bookMicro, bookWalls, orderLadders
+```
+
+`quality  ok` means the window is clean, and `quality  unknown (row predates the quality
+rail)` means the row was never assessed — unknown, not bad. `--output json` carries the full
+`quality` object verbatim.
+
+For `series`, a one-line summary goes to **stderr** when any bucket is flagged (so a pipe
+stays clean), and `--quality` adds a per-bucket `quality` column to `table` and `csv`:
+
+```bash
+blackforge series -e binance -s BTCUSDT -m upDepth30 --quality --output csv
+# ts,value,quality
+```
+
+Without `--quality` the default columns are unchanged. Flag names come from the `bits` table
+on the `qualityFlags` metric in `blackforge catalog`; unnamed bits print as their raw mask.
 
 ## Configuration & auth
 
