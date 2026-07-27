@@ -14,8 +14,18 @@ import {
   renderRowSet,
   type RowSet,
 } from "./render.js";
+import {
+  anyFlagged,
+  anyQuality,
+  bitsFromCatalog,
+  formatSeriesNote,
+  isFlagged,
+  latestQualityLine,
+  qualityCell,
+  summarizeSeriesQuality,
+} from "./quality.js";
 import type { ApiResult } from "./client.js";
-import type { Catalog, OutputFormat } from "./types.js";
+import type { Catalog, OutputFormat, QualityBit } from "./types.js";
 
 const VERSION = "0.1.0";
 const KEYS_URL = "https://app.blackforge.so/keys";
@@ -68,6 +78,19 @@ function emit(
   }
 }
 
+// The quality-flag decode table, read from the (keyless) catalog on demand and
+// reused for the rest of the process. Never hardcode a copy of this table.
+// If the fetch fails we fall back to raw masks rather than failing the command.
+async function fetchQualityBits(opts: GlobalOpts): Promise<QualityBit[]> {
+  try {
+    const { client } = makeClient(opts);
+    const { data } = await client.catalog();
+    return bitsFromCatalog(data);
+  } catch {
+    return [];
+  }
+}
+
 function fail(message: string, code = 1): never {
   process.stderr.write(pc.red(`error: ${message}`) + "\n");
   process.exit(code);
@@ -100,7 +123,7 @@ const program = new Command();
 program
   .name("blackforge")
   .description(
-    "Terminal client for the BlackForge crypto market-data API — 9 spot venues, up to 117 columns per 5-minute window.",
+    "Terminal client for the BlackForge crypto market-data API — 9 spot venues, every column it measures per 5-minute window (run `blackforge catalog` for the exact list).",
   )
   .version(VERSION, "-V, --version")
   .addOption(
@@ -334,6 +357,16 @@ program
         process.stdout.write(
           pc.dim(`ts ${new Date(result.data.ts).toISOString()}`) + "\n",
         );
+        // Quality is a header line, not a column: `latest` renders one row per
+        // metric. Absent quality (today's API) prints nothing at all.
+        const line = latestQualityLine(result.data.quality);
+        if (line !== null) {
+          const q = result.data.quality;
+          const flagged = q !== undefined && isFlagged(q.raw);
+          process.stdout.write(
+            pc.dim("quality  ") + (flagged ? pc.yellow(line) : pc.dim(line)) + "\n",
+          );
+        }
       }
       emit(set, format, result, opts, result.data);
     }),
@@ -354,6 +387,10 @@ program
   )
   .option("--from <iso>", "start, ISO-8601 (e.g. 2026-07-01T00:00:00Z)")
   .option("--to <iso>", "end, ISO-8601")
+  .option(
+    "--quality",
+    "add a per-bucket quality column (flag names, empty when clean)",
+  )
   .action((_o, command: Command) =>
     run(async () => {
       const opts = globals(command);
@@ -364,6 +401,7 @@ program
         interval: string;
         from?: string;
         to?: string;
+        quality?: boolean;
       }>();
       const format = resolveFormat(opts);
       const { client } = makeClient(opts);
@@ -375,13 +413,34 @@ program
         from: local.from,
         to: local.to,
       });
+      const points = result.data.points;
+
+      // The decode table is only worth a round-trip when there is something to
+      // decode. `--quality` needs it for the column; otherwise only a real flag
+      // (not the "never assessed" sentinel) justifies the fetch.
+      const needBits = local.quality ? anyQuality(points) : anyFlagged(points);
+      const bits = needBits ? await fetchQualityBits(opts) : [];
+
+      // Default columns are untouched: adding one would break every existing
+      // CSV consumer. `--quality` is the opt-in.
       const set: RowSet = {
-        columns: ["ts", "value"],
-        rows: result.data.points.map((p) => ({
+        columns: local.quality ? ["ts", "value", "quality"] : ["ts", "value"],
+        rows: points.map((p) => ({
           ts: new Date(p.ts).toISOString(),
           value: p.value,
+          ...(local.quality ? { quality: qualityCell(p.quality, bits) } : {}),
         })),
       };
+
+      // One aggregate note on stderr, so a pipe is never polluted. Buckets that
+      // simply predate the quality rail are not "flagged" and stay silent.
+      const summary = summarizeSeriesQuality(points, bits);
+      if (summary) {
+        process.stderr.write(
+          pc.yellow(formatSeriesNote(summary, !local.quality)) + "\n",
+        );
+      }
+
       // An unentitled column returns empty points + a Columns-Omitted header;
       // surface that so the emptiness is explained, not silent.
       if (
