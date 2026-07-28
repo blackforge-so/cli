@@ -72,7 +72,7 @@ export class BlackForgeClient {
       if (!this.apiKey) {
         throw new ApiError(
           401,
-          "No API key. Run `blackforge login` or pass --api-key / set BLACKFORGE_API_KEY. Get a key at https://app.blackforge.so/keys",
+          "No API key. Run `blackforge login` or pass --api-key / set BLACKFORGE_API_KEY. Get a key at https://app.blackforge.so/api",
         );
       }
       headers["x-api-key"] = this.apiKey;

@@ -32,7 +32,7 @@ Requires Node.js 20 or newer.
 ## Quickstart
 
 ```bash
-# 1. Store your API key (get one at https://app.blackforge.so/keys)
+# 1. Store your API key (get one at https://app.blackforge.so/api)
 blackforge login
 
 # 2. Pull the most recent 5-minute bucket for a pair
@@ -141,7 +141,7 @@ emptiness so it never looks like missing data.
 
 ## Where to get a key
 
-Mint one at **[app.blackforge.so/keys](https://app.blackforge.so/keys)**. The same key works
+Mint one at **[app.blackforge.so/api](https://app.blackforge.so/api)**. The same key works
 across the CLI, the [MCP server](https://www.npmjs.com/package/@blackforge-so/mcp), and the REST
 API — one meter across every surface.
 
