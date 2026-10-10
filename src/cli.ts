@@ -27,7 +27,7 @@ import {
 import type { ApiResult } from "./client.js";
 import type { Catalog, OutputFormat, QualityBit } from "./types.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const KEYS_URL = "https://app.blackforge.so/api";
 
 interface GlobalOpts {
