@@ -124,7 +124,7 @@ const program = new Command();
 program
   .name("blackforge")
   .description(
-    "Terminal client for the BlackForge crypto market-data API — 9 spot venues, every column it measures per 5-minute window (run `blackforge catalog` for the exact list).",
+    "Terminal client for the BlackForge crypto market-data API — 9 spot venues, every column it measures, per minute on Ultra and PAYG and per 5 minutes otherwise (run `blackforge catalog` for the exact list).",
   )
   .version(VERSION, "-V, --version")
   .addOption(
@@ -327,7 +327,7 @@ program
 
 program
   .command("latest")
-  .description("the most recent 5-minute bucket for a pair")
+  .description("the most recent closed bucket for a pair, at your plan's interval")
   .requiredOption("-e, --exchange <venue>", "venue, e.g. binance")
   .requiredOption("-s, --symbol <symbol>", "symbol, e.g. BTCUSDT")
   .option("-c, --columns <a,b,c>", "comma-separated metric keys to include")
