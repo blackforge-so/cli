@@ -25,7 +25,8 @@ import {
   summarizeSeriesQuality,
 } from "./quality.js";
 import type { ApiResult } from "./client.js";
-import type { Catalog, OutputFormat, QualityBit } from "./types.js";
+import { INTERVALS, seriesAtPlanFloor } from "./interval.js";
+import type { Catalog, OutputFormat, QualityBit, Series } from "./types.js";
 
 const VERSION = "0.1.2";
 const KEYS_URL = "https://app.blackforge.so/api";
@@ -381,9 +382,10 @@ program
   .requiredOption("-s, --symbol <symbol>", "symbol, e.g. BTCUSDT")
   .requiredOption("-m, --metric <key>", "metric key, e.g. spreadMean")
   .addOption(
-    new Option("-i, --interval <interval>", "bucket interval")
-      .choices(["5m", "1h", "1d"])
-      .default("5m"),
+    new Option(
+      "-i, --interval <interval>",
+      "bucket interval (default: your plan's finest, 1m on Ultra and PAYG, 5m otherwise)",
+    ).choices([...INTERVALS]),
   )
   .option("--from <iso>", "start, ISO-8601 (e.g. 2026-07-01T00:00:00Z)")
   .option("--to <iso>", "end, ISO-8601")
@@ -398,22 +400,37 @@ program
         exchange: string;
         symbol: string;
         metric: string;
-        interval: string;
+        interval?: string;
         from?: string;
         to?: string;
         quality?: boolean;
       }>();
       const format = resolveFormat(opts);
       const { client } = makeClient(opts);
-      const result = await client.series({
+      const params = {
         exchange: local.exchange,
         symbol: local.symbol,
         metric: local.metric,
-        interval: local.interval,
         from: local.from,
         to: local.to,
-      });
+      };
+      // No --interval: the plan's floor (src/interval.ts explains how it is found).
+      let result: ApiResult<Series>;
+      if (local.interval !== undefined) {
+        result = await client.series({ ...params, interval: local.interval });
+      } else {
+        const picked = await seriesAtPlanFloor(client, params);
+        result = picked.result;
+        if (picked.note) process.stderr.write(pc.dim(picked.note) + "\n");
+      }
       const points = result.data.points;
+      if (result.data.truncated) {
+        process.stderr.write(
+          pc.yellow(
+            `note: the range holds more than ${points.length.toLocaleString("en-US")} buckets; these are the newest. Narrow --from/--to or use a coarser --interval for the rest.`,
+          ) + "\n",
+        );
+      }
 
       // The decode table is only worth a round-trip when there is something to
       // decode. `--quality` needs it for the column; otherwise only a real flag

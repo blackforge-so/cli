@@ -86,6 +86,8 @@ export interface Series {
   exchange: string;
   symbol: string;
   points: SeriesPoint[];
+  /** True when the range held more buckets than one response carries; the newest are returned. */
+  truncated?: boolean;
 }
 
 export interface UsageDay {

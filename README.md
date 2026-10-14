@@ -58,6 +58,15 @@ blackforge series \
 That writes one measurement's time series straight to a CSV you can open in a spreadsheet or
 feed to `pandas`. Swap `--metric` for any key from `blackforge metrics`.
 
+### Intervals
+
+`--interval` is one of `1m`, `5m`, `1h`, `1d`. One-minute buckets are on Ultra and PAYG (PAYG
+bills a 1m row at five times a 5m row); Max and below go down to `5m`. Without `--interval`
+the CLI asks for `1m` and, if your plan stops at a coarser floor, retries at the floor the API
+names; a range from before the one-minute rows existed is served at `5m`, with a note on
+stderr. A response holds at most 50,000 buckets (about 34 days at 1m); a longer range returns
+the newest buckets and the CLI says so on stderr.
+
 ## Commands
 
 | Command | What it does |
@@ -69,8 +78,8 @@ feed to `pandas`. Swap `--metric` for any key from `blackforge metrics`.
 | `blackforge venues` | Venues only. **No key required.** |
 | `blackforge metrics` | Metric definitions only (`key`, `label`, `family`, `unit`, `minPlan`). **No key required.** |
 | `blackforge symbols --exchange <v>` | List the pairs a venue trades. |
-| `blackforge latest --exchange <v> --symbol <s> [--columns a,b,c]` | The latest 5-minute bucket. |
-| `blackforge series --exchange <v> --symbol <s> --metric <k> [--interval 5m\|1h\|1d] [--from <iso>] [--to <iso>] [--quality]` | A time series of one metric. |
+| `blackforge latest --exchange <v> --symbol <s> [--columns a,b,c]` | The latest closed bucket at your plan's interval (1 minute on Ultra and PAYG, 5 minutes otherwise). |
+| `blackforge series --exchange <v> --symbol <s> --metric <k> [--interval 1m\|5m\|1h\|1d] [--from <iso>] [--to <iso>] [--quality]` | A time series of one metric. Without `--interval` it uses your plan's finest interval (see below). |
 | `blackforge usage` | Your recent request counts and remaining row quota. |
 
 ### Global options
