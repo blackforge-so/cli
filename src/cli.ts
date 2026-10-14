@@ -28,7 +28,7 @@ import type { ApiResult } from "./client.js";
 import { INTERVALS, seriesAtPlanFloor } from "./interval.js";
 import type { Catalog, OutputFormat, QualityBit, Series } from "./types.js";
 
-const VERSION = "0.1.2";
+const VERSION = "0.2.0";
 const KEYS_URL = "https://app.blackforge.so/api";
 
 interface GlobalOpts {

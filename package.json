@@ -1,6 +1,6 @@
 {
   "name": "@blackforge-so/cli",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Terminal client for the BlackForge crypto market-data API — catalog, symbols, latest bucket, time series and usage, as table, JSON or CSV.",
   "type": "module",
   "bin": {
