@@ -16,7 +16,7 @@ export interface CatalogVenue {
  * optional so a growing server-side shape cannot break the client.
  */
 export interface QualityBit {
-  /** Bit index, 0-15. */
+  /** Bit index, 0-30 (19 bits served today). */
   bit?: number;
   /** The bit's mask, i.e. 1 << bit. Either this or `bit` identifies the flag. */
   mask?: number;

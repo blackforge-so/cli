@@ -121,6 +121,9 @@ describe("quality decode", () => {
     expect(decodeMask(3, BITS)).toEqual(["BOOK_DESYNCED", "BOOK_CROSSED"]);
     expect(decodeMask(4, BITS)).toEqual(["mask 4"]);
     expect(decodeMask(2049, [])).toEqual(["mask 1", "mask 2048"]);
+    // Bits above 15 decode too (17 BOOK_EMPTY_AT_VENUE, 18 TRADES_BACKFILLED).
+    expect(decodeMask(16384 | 131072 | 262144, [])).toEqual(["mask 16384", "mask 131072", "mask 262144"]);
+    expect(decodeMask(262144, [{ bit: 18, mask: 262144, name: "TRADES_BACKFILLED" }])).toEqual(["TRADES_BACKFILLED"]);
   });
 
   it("never treats the 32768 sentinel as a flag", () => {
