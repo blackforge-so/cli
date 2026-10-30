@@ -1,15 +1,14 @@
 # @blackforge-so/cli
 
 A terminal client for the [BlackForge](https://blackforge.so) crypto **market-data** API.
-Discover the catalog, list a venue's pairs, pull the latest 5-minute bucket or a time
-series, and check your usage — as a table, JSON, or CSV, straight from your shell.
+Discover the catalog, list a venue's pairs, pull the latest bucket or a time series, and
+check your usage, as a table, JSON or CSV, straight from your shell.
 
-BlackForge is raw market-data intelligence: **9 spot venues** (`binance, bitget, bybit,
-coinbase, gate, kraken, kucoin, mexc, okx`) and every column it measures, per
-`(exchange, symbol)` per closed 5-minute window — run `blackforge catalog` for the exact
-list. Every column is a **measurement** — for
-example, the median lifetime of a resting price level, or taker buy-vs-sell volume — not a
-trade call. The CLI is a thin HTTP wrapper over the same `/v1` API the dashboard and MCP
+BlackForge is **real time crypto market data from the major spot exchanges** (`binance, bitget,
+bybit, coinbase, gate, kraken, kucoin, mexc, okx`): 150+ metrics for 14,000+ pairs, per
+`(exchange, symbol)` per closed bucket. Run `blackforge catalog` for the exact list. Every column
+is a **measurement**, for example the median lifetime of a resting price level or taker
+buy-vs-sell volume, not a trade call. The CLI is a thin HTTP wrapper over the same `/v1` API the dashboard and MCP
 server use: one key, one meter, more surfaces.
 
 ## Install
