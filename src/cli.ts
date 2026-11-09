@@ -41,7 +41,7 @@ import type {
   Series,
 } from "./types.js";
 
-const VERSION = "0.2.2";
+const VERSION = "0.3.0";
 const KEYS_URL = "https://app.blackforge.so/api";
 
 interface GlobalOpts {
