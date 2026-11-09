@@ -66,6 +66,44 @@ names; a range from before the one-minute rows existed is served at `5m`, with a
 stderr. A response holds at most 50,000 buckets (about 34 days at 1m); a longer range returns
 the newest buckets and the CLI says so on stderr.
 
+## Futures
+
+The same key reads the **linear futures contracts** (perpetual and dated) on the major
+futures venues: mark, index, last and best bid and ask prices, funding rate and next funding
+time, open interest, taker buy and sell flow, and liquidations, per contract in real time.
+History is a rolling 60 days, from 7 November 2026. Contracts are spelled the way each venue
+spells them (`BTCUSDT` on binance and bybit, `BTC-USDT-SWAP` on okx, `BTC_USDT` on gate,
+`XBTUSDTM` on kucoin); `baseAsset` is the same coin on every venue.
+
+```bash
+# What is there: venues, columns, history window, which venues publish liquidations
+blackforge catalog --futures
+
+# The latest bucket for one contract
+blackforge futures latest -e bybit -s BTCUSDT -c markPrice,indexPrice,fundingRate,openInterestValue
+
+# Funding for one coin across every venue your plan has, highest first
+blackforge futures top -m fundingRate -b BTC --contract-type perpetual
+
+# Open interest over a day, to CSV
+blackforge futures series -e okx -s BTC-USDT-SWAP -m openInterestValue -i 1h \
+  --from 2026-11-08T00:00:00Z --to 2026-11-09T00:00:00Z --output csv > btc-oi.csv
+
+# Liquidation events of the last hour, newest first (Max plan and up)
+blackforge futures liquidations -e bybit --side long
+```
+
+Plans follow the spot ladder: Free reads binance, gate and mexc futures as daily bars over
+the last 14 days; Pro adds every futures venue at `1h`; Max goes down to `5m` and adds the
+liquidation columns and the liquidation event feed; Ultra and PAYG go down to `1m`.
+`blackforge catalog --futures` is the source for which plan includes what.
+
+Liquidation events come from each venue's public feed. Venues that throttle that feed
+(binance and okx) give a lower bound in a cascade, and the CLI says so on stderr when such a
+venue is in the result; venues that publish no feed read `null` in the liquidation columns.
+Futures rows carry their own `qualityFlags` table (`QUOTE_MISSING`, `TRADES_PARTIAL` and so
+on), decoded from the futures catalog the same way the spot flags are.
+
 ## Commands
 
 | Command | What it does |
@@ -80,6 +118,12 @@ the newest buckets and the CLI says so on stderr.
 | `blackforge latest --exchange <v> --symbol <s> [--columns a,b,c]` | The latest closed bucket at your plan's interval (1 minute on Ultra and PAYG, 5 minutes otherwise). |
 | `blackforge series --exchange <v> --symbol <s> --metric <k> [--interval 1m\|5m\|1h\|1d] [--from <iso>] [--to <iso>] [--quality]` | A time series of one metric. Without `--interval` it uses your plan's finest interval (see below). |
 | `blackforge usage` | Your recent request counts and remaining row quota. |
+| `blackforge catalog --futures` | The futures venues, columns, history window and liquidation feeds. `venues --futures` and `metrics --futures` show one part each. **No key required.** |
+| `blackforge futures symbols --exchange <v>` | The contracts a futures venue lists, as the venue spells them. |
+| `blackforge futures latest --exchange <v> --symbol <c> [--columns a,b,c]` | The latest complete bucket for one contract at your plan's interval. |
+| `blackforge futures series --exchange <v> --symbol <c> --metric <k> [--interval 1m\|5m\|1h\|1d] [--from <iso>] [--to <iso>] [--quality]` | A time series of one futures column. Without `--interval` it uses your plan's finest. |
+| `blackforge futures top --metric <k> [--exchange <v>] [--base-asset <coin>] [--contract-type perpetual\|dated] [--order desc\|asc] [--limit <n>]` | Contracts ranked by one column on the latest complete bucket, on one venue or every venue your plan has. |
+| `blackforge futures liquidations [--exchange <v>] [--symbol <c>] [--side long\|short] [--from <iso>] [--to <iso>] [--limit <n>]` | Liquidation events, newest first; the last hour by default. `side` is the position liquidated. Max plan and up. |
 
 ### Global options
 

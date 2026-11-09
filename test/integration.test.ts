@@ -76,7 +76,16 @@ describe("blackforge binary against the local API", () => {
       "latest",
       "series",
       "usage",
+      "futures",
     ]) {
+      expect(stdout).toContain(cmd);
+    }
+  });
+
+  it("lists the futures subcommands in futures --help", async () => {
+    const { code, stdout } = await cli(["futures", "--help"]);
+    expect(code).toBe(0);
+    for (const cmd of ["symbols", "latest", "series", "top", "liquidations"]) {
       expect(stdout).toContain(cmd);
     }
   });
@@ -444,5 +453,254 @@ describe("quality surface (stub API)", () => {
         expect(JSON.parse(stdout).quality).toEqual(quality);
       },
     );
+  });
+});
+
+// ── futures, against a stub API ─────────────────────────────────────────────
+// /v1/futures/* and a catalog carrying the `futures` block. Runs everywhere.
+
+const FUTURES_CATALOG = {
+  venues: [{ venue: "binance", minPlan: "free" }],
+  metrics: [
+    {
+      key: "qualityFlags",
+      label: "Quality flags",
+      family: "quality",
+      unit: "bitmask",
+      quoteRelative: false,
+      nullable: false,
+      description: "",
+      howToRead: "",
+      minPlan: "free",
+      bits: [{ bit: 0, name: "BOOK_DESYNCED" }],
+    },
+  ],
+  futures: {
+    venues: [
+      { venue: "binance", minPlan: "free", liquidations: "lowerBound" },
+      { venue: "bybit", minPlan: "pro", liquidations: "complete" },
+      { venue: "mexc", minPlan: "free", liquidations: null },
+    ],
+    metrics: [
+      { key: "markPrice", label: "Mark price", family: "price", unit: "price", minPlan: "free" },
+      { key: "fundingRate", label: "Funding rate", family: "funding", unit: "ratio", minPlan: "free" },
+      { key: "liqLongCount", label: "Long liquidations", family: "liquidations", unit: "count", minPlan: "max" },
+      { key: "rowVersion", label: "Row version", family: "quality", unit: "count", minPlan: null, internal: true },
+    ],
+    qualityBits: [
+      { bit: 0, mask: 1, name: "QUOTE_MISSING", contaminates: ["price", "funding", "openInterest"] },
+      { bit: 1, mask: 2, name: "TRADES_PARTIAL", contaminates: ["tradeFlow"] },
+    ],
+    liquidationEvents: { minPlan: "max", fields: [] },
+    availableFrom: "2026-11-07T22:04:00.000Z",
+    historyDays: 60,
+  },
+};
+
+async function withFuturesStub(
+  routes: Record<string, { status?: number; body: unknown }>,
+  fn: (base: string, seen: string[]) => Promise<void>,
+): Promise<void> {
+  const seen: string[] = [];
+  const server: Server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    seen.push(url.pathname + url.search);
+    const route = Object.entries(routes).find(([suffix]) => url.pathname.endsWith(suffix));
+    const { status, body } = route ? route[1] : { status: 200, body: FUTURES_CATALOG };
+    res.writeHead(status ?? 200, { "content-type": "application/json" });
+    res.end(JSON.stringify(body));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as { port: number }).port;
+  try {
+    await fn(`http://127.0.0.1:${port}/api`, seen);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+const keyed = (base: string) => ["--api-key", MAX_KEY, "--base-url", base];
+
+describe("futures commands (stub API)", () => {
+  it("futures latest: table header, quality line, text values, raw JSON", async () => {
+    const body = {
+      ts: 1793145600000,
+      interval: "1m",
+      values: { baseAsset: "BTC", contractType: "perpetual", markPrice: 101234.5, fundingRate: 0.0001 },
+      quality: { raw: 2, all: 2, flags: ["TRADES_PARTIAL"], contaminates: ["tradeFlow"] },
+    };
+    await withFuturesStub({ "/v1/futures/latest": { body } }, async (base, seen) => {
+      const table = await cli(["futures", "latest", "-e", "binance", "-s", "BTCUSDT", ...keyed(base), "--output", "table"]);
+      expect(table.code).toBe(0);
+      expect(table.stdout.split("\n")[0]).toBe("ts 2026-10-28T00:00:00.000Z  (1m bucket)");
+      expect(table.stdout).toContain("quality  TRADES_PARTIAL — affects tradeFlow");
+      expect(table.stdout).toContain("perpetual");
+      expect(seen[0]).toContain("/v1/futures/latest?exchange=binance&symbol=BTCUSDT");
+
+      const json = await cli(["futures", "latest", "-e", "binance", "-s", "BTCUSDT", ...keyed(base), "--output", "json"]);
+      expect(JSON.parse(json.stdout)).toEqual(body);
+    });
+  });
+
+  it("futures latest with no row says so instead of printing 1970", async () => {
+    await withFuturesStub({ "/v1/futures/latest": { body: { ts: 0, values: {} } } }, async (base) => {
+      const { code, stdout } = await cli(["futures", "latest", "-e", "okx", "-s", "NOPE-USDT-SWAP", ...keyed(base), "--output", "table"]);
+      expect(code).toBe(0);
+      expect(stdout).toContain("no row for this contract");
+      expect(stdout).not.toContain("1970");
+    });
+  });
+
+  it("futures series: csv, futures bit names in the note, never the spot table", async () => {
+    const body = {
+      metric: "fundingRate",
+      exchange: "bybit",
+      symbol: "BTCUSDT",
+      interval: "1h",
+      points: [
+        { ts: 1793145600000, value: 0.0001, quality: 0, qualityAll: 0 },
+        { ts: 1793149200000, value: null, quality: 1, qualityAll: 0 },
+      ],
+    };
+    await withFuturesStub({ "/v1/futures/series": { body } }, async (base, seen) => {
+      const csv = await cli([
+        "futures", "series", "-e", "bybit", "-s", "BTCUSDT", "-m", "fundingRate", "-i", "1h",
+        "--from", "2026-11-08T00:00:00Z", "--to", "2026-11-09T00:00:00Z", ...keyed(base), "--output", "csv",
+      ]);
+      expect(csv.code).toBe(0);
+      const lines = csv.stdout.trim().split("\n");
+      expect(lines[0]).toBe("ts,value");
+      expect(lines[1]).toBe("2026-10-28T00:00:00.000Z,0.0001");
+      expect(lines[2]).toBe("2026-10-28T01:00:00.000Z,");
+      expect(csv.stderr).toContain("QUOTE_MISSING (1)");
+      expect(csv.stderr).not.toContain("BOOK_DESYNCED");
+      expect(seen.some((u) => u.includes("/v1/futures/series?") && u.includes("interval=1h"))).toBe(true);
+
+      const q = await cli([
+        "futures", "series", "-e", "bybit", "-s", "BTCUSDT", "-m", "fundingRate", "-i", "1h",
+        ...keyed(base), "--quality", "--output", "csv",
+      ]);
+      expect(q.stdout.trim().split("\n")[2]).toBe("2026-10-28T01:00:00.000Z,,QUOTE_MISSING");
+    });
+  });
+
+  it("futures top: one row per contract, header names metric and bucket", async () => {
+    const body = {
+      metric: "fundingRate",
+      interval: "1h",
+      ts: 1793145600000,
+      order: "desc",
+      rows: [
+        { exchange: "bybit", symbol: "BTCUSDT", baseAsset: "BTC", value: 0.00012 },
+        { exchange: "okx", symbol: "BTC-USDT-SWAP", baseAsset: "BTC", value: 0.0001 },
+      ],
+    };
+    await withFuturesStub({ "/v1/futures/top": { body } }, async (base, seen) => {
+      const csv = await cli(["futures", "top", "-m", "fundingRate", "-b", "BTC", "--contract-type", "perpetual", "-n", "2", ...keyed(base), "--output", "csv"]);
+      expect(csv.code).toBe(0);
+      expect(csv.stdout.trim().split("\n")).toEqual([
+        "exchange,symbol,baseAsset,value",
+        "bybit,BTCUSDT,BTC,0.00012",
+        "okx,BTC-USDT-SWAP,BTC,0.0001",
+      ]);
+      expect(seen[0]).toContain("metric=fundingRate");
+      expect(seen[0]).toContain("baseAsset=BTC");
+      expect(seen[0]).toContain("contractType=perpetual");
+      expect(seen[0]).toContain("limit=2");
+
+      const table = await cli(["futures", "top", "-m", "fundingRate", ...keyed(base), "--output", "table"]);
+      expect(table.stdout.split("\n")[0]).toBe("fundingRate  1h bucket  ts 2026-10-28T00:00:00.000Z  desc");
+    });
+  });
+
+  it("futures liquidations: events as rows, lower-bound note from the catalog on stderr", async () => {
+    const body = {
+      from: 1793142000000,
+      to: 1793145600000,
+      events: [
+        { ts: 1793145500000, exchange: "binance", symbol: "ETHUSDT", side: "long", price: 3000, quantity: 2, notional: 6000 },
+        { ts: 1793145400000, exchange: "bybit", symbol: "BTCUSDT", side: "short", price: 100000, quantity: 0.1, notional: 10000 },
+      ],
+      truncated: true,
+    };
+    await withFuturesStub({ "/v1/futures/liquidations": { body } }, async (base) => {
+      const csv = await cli(["futures", "liquidations", "--side", "long", ...keyed(base), "--output", "csv"]);
+      expect(csv.code).toBe(0);
+      const lines = csv.stdout.trim().split("\n");
+      expect(lines[0]).toBe("ts,exchange,symbol,side,price,quantity,notional");
+      expect(lines[1]).toBe("2026-10-27T23:58:20.000Z,binance,ETHUSDT,long,3000,2,6000");
+      expect(csv.stderr).toContain("these are the newest");
+      expect(csv.stderr).toContain("note: binance throttles its public liquidation feed, so in a cascade its events are a lower bound.");
+      expect(csv.stderr).not.toContain("bybit");
+    });
+  });
+
+  it("futures liquidations below Max: non-zero exit carrying the 403 and the upgrade URL", async () => {
+    const body = {
+      statusCode: 403,
+      message: "Liquidation events are not included in the pro plan. Upgrade at https://blackforge.so/pricing for the liquidation feed.",
+    };
+    await withFuturesStub({ "/v1/futures/liquidations": { status: 403, body } }, async (base) => {
+      const { code, stderr } = await cli(["futures", "liquidations", ...keyed(base)]);
+      expect(code).not.toBe(0);
+      expect(stderr).toContain("[403]");
+      expect(stderr).toContain("https://blackforge.so/pricing");
+    });
+  });
+
+  it("futures symbols: one contract per row", async () => {
+    await withFuturesStub({ "/v1/futures/symbols": { body: ["BTC-USDT-SWAP", "ETH-USDT-SWAP"] } }, async (base, seen) => {
+      const csv = await cli(["futures", "symbols", "-e", "okx", ...keyed(base), "--output", "csv"]);
+      expect(csv.stdout.trim().split("\n")).toEqual(["symbol", "BTC-USDT-SWAP", "ETH-USDT-SWAP"]);
+      expect(seen[0]).toContain("/v1/futures/symbols?exchange=okx");
+    });
+  });
+
+  it("catalog/metrics/venues --futures show the futures block; internal columns stay out of the table", async () => {
+    await withFuturesStub({}, async (base) => {
+      const metrics = await cli(["metrics", "--futures", "--base-url", base, "--output", "csv"]);
+      expect(metrics.code).toBe(0);
+      expect(metrics.stdout.trim().split("\n")).toEqual([
+        "key,label,family,unit,minPlan",
+        "markPrice,Mark price,price,price,free",
+        "fundingRate,Funding rate,funding,ratio,free",
+        "liqLongCount,Long liquidations,liquidations,count,max",
+      ]);
+
+      const venues = await cli(["venues", "--futures", "--base-url", base, "--output", "csv"]);
+      expect(venues.stdout.trim().split("\n")).toEqual([
+        "venue,minPlan,liquidations",
+        "binance,free,lower bound",
+        "bybit,pro,complete",
+        "mexc,free,none published",
+      ]);
+
+      const table = await cli(["catalog", "--futures", "--base-url", base, "--output", "table"]);
+      expect(table.stdout).toContain("Futures venues: binance (free, liquidations: lower bound), bybit (pro, liquidations: complete), mexc (free)");
+      expect(table.stdout).toContain("History: the last 60 days, rows from 2026-11-07");
+      expect(table.stdout).toContain("Liquidation events: max plan and up");
+
+      const json = await cli(["catalog", "--futures", "--base-url", base, "--output", "json"]);
+      expect(JSON.parse(json.stdout)).toEqual(FUTURES_CATALOG.futures);
+    });
+  });
+
+  it("spot catalog output is unchanged by the futures block (json is the raw payload, csv the spot metrics)", async () => {
+    await withFuturesStub({}, async (base) => {
+      const csv = await cli(["metrics", "--base-url", base, "--output", "csv"]);
+      expect(csv.stdout.trim().split("\n")).toEqual([
+        "key,label,family,unit,minPlan",
+        "qualityFlags,Quality flags,quality,bitmask,free",
+      ]);
+      expect(csv.stderr).toBe("");
+    });
+  });
+
+  it("--futures on an API without futures fails clearly", async () => {
+    await withStubApi({}, async (base) => {
+      const { code, stderr } = await cli(["metrics", "--futures", "--base-url", base]);
+      expect(code).not.toBe(0);
+      expect(stderr).toContain("no futures catalog");
+    });
   });
 });

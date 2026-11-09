@@ -1,7 +1,7 @@
 {
   "name": "@blackforge-so/cli",
   "version": "0.2.2",
-  "description": "Terminal client for the BlackForge crypto market-data API: catalog, symbols, latest bucket, time series and usage, as table, JSON or CSV.",
+  "description": "Terminal client for the BlackForge crypto market-data API: catalog, symbols, latest bucket, time series, futures (funding, open interest, liquidations) and usage, as table, JSON or CSV.",
   "type": "module",
   "bin": {
     "blackforge": "dist/cli.js"
@@ -28,7 +28,11 @@
     "market-data",
     "cli",
     "orderbook",
-    "microstructure"
+    "microstructure",
+    "futures",
+    "funding-rate",
+    "open-interest",
+    "liquidations"
   ],
   "author": "BlackForge",
   "license": "MIT",

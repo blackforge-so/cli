@@ -15,7 +15,7 @@
 // An explicit --interval is never second-guessed: it goes to the API as typed.
 import { ApiError } from "./client.js";
 import type { ApiResult, BlackForgeClient } from "./client.js";
-import type { Series } from "./types.js";
+import type { FuturesSeries, Series } from "./types.js";
 
 export const INTERVALS = ["1m", "5m", "1h", "1d"] as const;
 export type Interval = (typeof INTERVALS)[number];
@@ -71,4 +71,25 @@ export async function seriesAtPlanFloor(
         ? "note: no one-minute rows in this range (they start at the switch to one-minute rows); showing 5m buckets. Pass --interval to choose."
         : null,
   };
+}
+
+/**
+ * A futures series at the plan's floor. Same probe as the spot one (ask 1m,
+ * read the floor off a 403), minus step 3: the futures rows have been minute
+ * rows from their first day, so an empty 1m answer is simply an empty range
+ * and asking again at 5m would only spend a request.
+ */
+export async function futuresSeriesAtPlanFloor(
+  client: BlackForgeClient,
+  params: SeriesParams,
+): Promise<{ result: ApiResult<FuturesSeries>; interval: Interval }> {
+  try {
+    const result = await client.futuresSeries({ ...params, interval: "1m" });
+    return { result, interval: "1m" };
+  } catch (err) {
+    const floor = floorFromIntervalError(err);
+    if (floor === null) throw err;
+    const result = await client.futuresSeries({ ...params, interval: floor });
+    return { result, interval: floor };
+  }
 }

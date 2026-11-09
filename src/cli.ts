@@ -19,14 +19,27 @@ import {
   anyQuality,
   bitsFromCatalog,
   formatSeriesNote,
+  futuresBitsFromCatalog,
   isFlagged,
   latestQualityLine,
   qualityCell,
   summarizeSeriesQuality,
 } from "./quality.js";
 import type { ApiResult } from "./client.js";
-import { INTERVALS, seriesAtPlanFloor } from "./interval.js";
-import type { Catalog, OutputFormat, QualityBit, Series } from "./types.js";
+import {
+  INTERVALS,
+  futuresSeriesAtPlanFloor,
+  seriesAtPlanFloor,
+} from "./interval.js";
+import type {
+  Catalog,
+  FuturesCatalog,
+  FuturesCatalogVenue,
+  FuturesSeries,
+  OutputFormat,
+  QualityBit,
+  Series,
+} from "./types.js";
 
 const VERSION = "0.2.2";
 const KEYS_URL = "https://app.blackforge.so/api";
@@ -82,11 +95,15 @@ function emit(
 // The quality-flag decode table, read from the (keyless) catalog on demand and
 // reused for the rest of the process. Never hardcode a copy of this table.
 // If the fetch fails we fall back to raw masks rather than failing the command.
-async function fetchQualityBits(opts: GlobalOpts): Promise<QualityBit[]> {
+// `pick` chooses the spot table (default) or the futures one.
+async function fetchQualityBits(
+  opts: GlobalOpts,
+  pick: (catalog: Catalog) => QualityBit[] = bitsFromCatalog,
+): Promise<QualityBit[]> {
   try {
     const { client } = makeClient(opts);
     const { data } = await client.catalog();
-    return bitsFromCatalog(data);
+    return pick(data);
   } catch {
     return [];
   }
@@ -124,7 +141,7 @@ const program = new Command();
 program
   .name("blackforge")
   .description(
-    "Terminal client for the BlackForge crypto market-data API — 9 spot venues, every column it measures, per minute on Ultra and PAYG and per 5 minutes otherwise (run `blackforge catalog` for the exact list).",
+    "Terminal client for the BlackForge crypto market-data API: the major spot exchanges and their linear futures contracts, per minute on Ultra and PAYG and in coarser buckets otherwise (run `blackforge catalog` for the exact list, `blackforge catalog --futures` for futures).",
   )
   .version(VERSION, "-V, --version")
   .addOption(
@@ -227,13 +244,24 @@ auth
 program
   .command("catalog")
   .description("list venues and metric definitions (no key required)")
+  .option("--futures", "the futures catalog instead: venues, columns, history")
   .action((_o, command: Command) =>
     run(async () => {
       const opts = globals(command);
       const format = resolveFormat(opts);
       const { client } = makeClient(opts);
       const result = await client.catalog();
+      if (command.opts<{ futures?: boolean }>().futures) {
+        emitFuturesCatalog(result, format, opts);
+        return;
+      }
       emitCatalog(result, format, opts);
+      // stderr, so a pipe never sees it; only where the API serves futures.
+      if (format === "table" && result.data.futures) {
+        process.stderr.write(
+          pc.dim("Futures columns: blackforge catalog --futures") + "\n",
+        );
+      }
     }),
   );
 
@@ -262,15 +290,97 @@ function emitCatalog(
   emit(set, format, result, opts, result.data);
 }
 
+// --- futures catalog --------------------------------------------------------
+
+function futuresCatalogOf(catalog: Catalog): FuturesCatalog {
+  if (!catalog.futures) {
+    fail("This API serves no futures catalog (no `futures` key in /v1/catalog).");
+  }
+  return catalog.futures;
+}
+
+function liquidationWord(v: FuturesCatalogVenue): string {
+  if (v.liquidations === "complete") return "complete";
+  if (v.liquidations === "lowerBound") return "lower bound";
+  return "none published";
+}
+
+// Sold columns only: an internal column measures the recorder and belongs to
+// no plan. JSON output still carries the raw payload, internal entries included.
+function futuresMetricSet(fut: FuturesCatalog): RowSet {
+  return {
+    columns: ["key", "label", "family", "unit", "minPlan"],
+    rows: fut.metrics
+      .filter((m) => !m.internal)
+      .map((m) => ({
+        key: m.key,
+        label: m.label,
+        family: m.family,
+        unit: m.unit,
+        minPlan: m.minPlan,
+      })),
+  };
+}
+
+function emitFuturesCatalog(
+  result: ApiResult<Catalog>,
+  format: OutputFormat,
+  opts: GlobalOpts,
+): void {
+  const fut = futuresCatalogOf(result.data);
+  if (format === "table") {
+    const venues = fut.venues
+      .map((v) => {
+        const liq = v.liquidations ? `, liquidations: ${liquidationWord(v)}` : "";
+        return `${v.venue} (${v.minPlan}${liq})`;
+      })
+      .join(", ");
+    process.stdout.write(pc.bold("Futures venues: ") + venues + "\n");
+    if (fut.historyDays !== undefined || fut.availableFrom) {
+      const days =
+        fut.historyDays !== undefined ? `the last ${fut.historyDays} days` : "";
+      const from = fut.availableFrom
+        ? `rows from ${fut.availableFrom.slice(0, 10)}`
+        : "";
+      process.stdout.write(
+        pc.bold("History: ") + [days, from].filter(Boolean).join(", ") + "\n",
+      );
+    }
+    if (fut.liquidationEvents?.minPlan) {
+      process.stdout.write(
+        pc.bold("Liquidation events: ") +
+          `${fut.liquidationEvents.minPlan} plan and up` +
+          "\n",
+      );
+    }
+    process.stdout.write("\n");
+  }
+  emit(futuresMetricSet(fut), format, result, opts, fut);
+}
+
 program
   .command("venues")
   .description("list venues only")
+  .option("--futures", "the futures venues and their liquidation feeds")
   .action((_o, command: Command) =>
     run(async () => {
       const opts = globals(command);
       const format = resolveFormat(opts);
       const { client } = makeClient(opts);
       const result = await client.catalog();
+      if (command.opts<{ futures?: boolean }>().futures) {
+        const fut = futuresCatalogOf(result.data);
+        const set: RowSet = {
+          columns: ["venue", "minPlan", "liquidations"],
+          rows: fut.venues.map((v) => ({
+            venue: v.venue,
+            minPlan: v.minPlan,
+            liquidations: liquidationWord(v),
+          })),
+        };
+        emit(set, format, result, opts, fut.venues);
+        return;
+      }
       const set: RowSet = {
         columns: ["venue", "minPlan"],
         rows: result.data.venues.map((v) => ({ ...v })),
@@ -282,12 +392,18 @@ program
 program
   .command("metrics")
   .description("list metric definitions only")
+  .option("--futures", "the futures column definitions")
   .action((_o, command: Command) =>
     run(async () => {
       const opts = globals(command);
       const format = resolveFormat(opts);
       const { client } = makeClient(opts);
       const result = await client.catalog();
+      if (command.opts<{ futures?: boolean }>().futures) {
+        const fut = futuresCatalogOf(result.data);
+        emit(futuresMetricSet(fut), format, result, opts, fut.metrics);
+        return;
+      }
       const set: RowSet = {
         columns: ["key", "label", "family", "unit", "minPlan"],
         rows: result.data.metrics.map((m) => ({
@@ -495,6 +611,318 @@ program
             result.data.rowsRemaining.toLocaleString("en-US") +
             "\n",
         );
+      }
+      emit(set, format, result, opts, result.data);
+    }),
+  );
+
+// --- futures ---------------------------------------------------------------
+// Linear futures contracts (perpetual and dated) under /v1/futures/*. Same
+// key, meter, output formats and error handling as the spot commands; the
+// differences are the venue-native contract symbols and the futures catalog
+// (`blackforge catalog --futures`), which carries its own quality-bit table.
+
+const futures = program
+  .command("futures")
+  .description(
+    "linear futures contracts: prices, funding, open interest, taker flow and liquidations (column list: blackforge metrics --futures)",
+  );
+
+function isoOrRaw(value: number | string | undefined): string {
+  if (typeof value === "number") return new Date(value).toISOString();
+  return value ?? "";
+}
+
+function joinWords(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+futures
+  .command("symbols")
+  .description("list the contracts a futures venue lists, as the venue spells them")
+  .requiredOption("-e, --exchange <venue>", "futures venue, e.g. okx")
+  .action((_o, command: Command) =>
+    run(async () => {
+      const opts = globals(command);
+      const local = command.opts<{ exchange: string }>();
+      const format = resolveFormat(opts);
+      const { client } = makeClient(opts);
+      const result = await client.futuresSymbols(local.exchange);
+      const set: RowSet = {
+        columns: ["symbol"],
+        rows: result.data.map((s) => ({ symbol: s })),
+      };
+      emit(set, format, result, opts, result.data);
+    }),
+  );
+
+futures
+  .command("latest")
+  .description("the most recent complete bucket for a contract, at your plan's interval")
+  .requiredOption("-e, --exchange <venue>", "futures venue, e.g. binance")
+  .requiredOption(
+    "-s, --symbol <contract>",
+    "contract as the venue spells it, e.g. BTCUSDT (okx BTC-USDT-SWAP, gate BTC_USDT)",
+  )
+  .option("-c, --columns <a,b,c>", "comma-separated futures column keys to include")
+  .action((_o, command: Command) =>
+    run(async () => {
+      const opts = globals(command);
+      const local = command.opts<{
+        exchange: string;
+        symbol: string;
+        columns?: string;
+      }>();
+      const format = resolveFormat(opts);
+      const { client } = makeClient(opts);
+      const result = await client.futuresLatest(
+        local.exchange,
+        local.symbol,
+        local.columns,
+      );
+      const set: RowSet = {
+        columns: ["metric", "value"],
+        rows: Object.entries(result.data.values).map(([metric, value]) => ({
+          metric,
+          value,
+        })),
+      };
+      if (format === "table") {
+        const interval = result.data.interval ? `  (${result.data.interval} bucket)` : "";
+        process.stdout.write(
+          pc.dim(
+            result.data.ts
+              ? `ts ${new Date(result.data.ts).toISOString()}${interval}`
+              : "no row for this contract",
+          ) + "\n",
+        );
+        const line = latestQualityLine(result.data.quality);
+        if (line !== null) {
+          const q = result.data.quality;
+          const flagged = q !== undefined && isFlagged(q.raw);
+          process.stdout.write(
+            pc.dim("quality  ") + (flagged ? pc.yellow(line) : pc.dim(line)) + "\n",
+          );
+        }
+      }
+      emit(set, format, result, opts, result.data);
+    }),
+  );
+
+futures
+  .command("series")
+  .description("a time series of one futures column for a contract")
+  .requiredOption("-e, --exchange <venue>", "futures venue, e.g. bybit")
+  .requiredOption("-s, --symbol <contract>", "contract as the venue spells it, e.g. BTCUSDT")
+  .requiredOption("-m, --metric <key>", "futures column key, e.g. fundingRate, openInterestValue")
+  .addOption(
+    new Option(
+      "-i, --interval <interval>",
+      "bucket interval (default: your plan's finest)",
+    ).choices([...INTERVALS]),
+  )
+  .option("--from <iso>", "start, ISO-8601 (e.g. 2026-11-08T00:00:00Z)")
+  .option("--to <iso>", "end, ISO-8601")
+  .option(
+    "--quality",
+    "add a per-bucket quality column (flag names, empty when clean)",
+  )
+  .action((_o, command: Command) =>
+    run(async () => {
+      const opts = globals(command);
+      const local = command.opts<{
+        exchange: string;
+        symbol: string;
+        metric: string;
+        interval?: string;
+        from?: string;
+        to?: string;
+        quality?: boolean;
+      }>();
+      const format = resolveFormat(opts);
+      const { client } = makeClient(opts);
+      const params = {
+        exchange: local.exchange,
+        symbol: local.symbol,
+        metric: local.metric,
+        from: local.from,
+        to: local.to,
+      };
+      let result: ApiResult<FuturesSeries>;
+      if (local.interval !== undefined) {
+        result = await client.futuresSeries({ ...params, interval: local.interval });
+      } else {
+        result = (await futuresSeriesAtPlanFloor(client, params)).result;
+      }
+      const points = result.data.points;
+      if (result.data.truncated) {
+        process.stderr.write(
+          pc.yellow(
+            `note: the range holds more than ${points.length.toLocaleString("en-US")} buckets; these are the newest. Narrow --from/--to or use a coarser --interval for the rest.`,
+          ) + "\n",
+        );
+      }
+
+      const needBits = local.quality ? anyQuality(points) : anyFlagged(points);
+      const bits = needBits ? await fetchQualityBits(opts, futuresBitsFromCatalog) : [];
+
+      const set: RowSet = {
+        columns: local.quality ? ["ts", "value", "quality"] : ["ts", "value"],
+        rows: points.map((p) => ({
+          ts: new Date(p.ts).toISOString(),
+          value: p.value,
+          ...(local.quality ? { quality: qualityCell(p.quality, bits) } : {}),
+        })),
+      };
+
+      const summary = summarizeSeriesQuality(points, bits);
+      if (summary) {
+        process.stderr.write(
+          pc.yellow(formatSeriesNote(summary, !local.quality)) + "\n",
+        );
+      }
+      if (!points.length && result.meta.columnsOmitted !== undefined) {
+        process.stderr.write(
+          pc.yellow(
+            `note: "${local.metric}" is not in your plan (columns omitted: ${result.meta.columnsOmitted}). Upgrade at https://blackforge.so/pricing`,
+          ) + "\n",
+        );
+      }
+      emit(set, format, result, opts, result.data);
+    }),
+  );
+
+futures
+  .command("top")
+  .description(
+    "rank contracts by one column on the latest complete bucket, on one venue or every venue your plan has",
+  )
+  .requiredOption("-m, --metric <key>", "futures column key, e.g. fundingRate, openInterestValue")
+  .option("-e, --exchange <venue>", "one venue (default: every futures venue your plan has)")
+  .option("-b, --base-asset <coin>", "one coin across venues, e.g. BTC")
+  .addOption(
+    new Option("--contract-type <type>", "perpetual or dated").choices([
+      "perpetual",
+      "dated",
+    ]),
+  )
+  .addOption(
+    new Option("--order <order>", "desc (largest first, the default) or asc").choices([
+      "desc",
+      "asc",
+    ]),
+  )
+  .option("-n, --limit <n>", "how many contracts, at most 100 (default 50)")
+  .action((_o, command: Command) =>
+    run(async () => {
+      const opts = globals(command);
+      const local = command.opts<{
+        metric: string;
+        exchange?: string;
+        baseAsset?: string;
+        contractType?: string;
+        order?: string;
+        limit?: string;
+      }>();
+      const format = resolveFormat(opts);
+      const { client } = makeClient(opts);
+      const result = await client.futuresTop(local);
+      const set: RowSet = {
+        columns: ["exchange", "symbol", "baseAsset", "value"],
+        rows: result.data.rows.map((r) => ({
+          exchange: r.exchange,
+          symbol: r.symbol,
+          baseAsset: r.baseAsset,
+          value: r.value,
+        })),
+      };
+      if (format === "table") {
+        const parts = [result.data.metric];
+        if (result.data.interval) parts.push(`${result.data.interval} bucket`);
+        if (result.data.ts) parts.push(`ts ${new Date(result.data.ts).toISOString()}`);
+        if (result.data.order) parts.push(result.data.order);
+        process.stdout.write(pc.dim(parts.join("  ")) + "\n");
+      }
+      emit(set, format, result, opts, result.data);
+    }),
+  );
+
+futures
+  .command("liquidations")
+  .description(
+    "liquidation events, newest first, on the venues that publish them (Max plan and up)",
+  )
+  .option("-e, --exchange <venue>", "one venue (default: every venue with a feed)")
+  .option("-s, --symbol <contract>", "one contract, as the venue spells it")
+  .addOption(
+    new Option("--side <side>", "the position liquidated: long or short").choices([
+      "long",
+      "short",
+    ]),
+  )
+  .option("--from <iso>", "start, ISO-8601 (default: one hour ago)")
+  .option("--to <iso>", "end, ISO-8601 (default: now)")
+  .option("-n, --limit <n>", "how many events, at most 1000 (default 100)")
+  .action((_o, command: Command) =>
+    run(async () => {
+      const opts = globals(command);
+      const local = command.opts<{
+        exchange?: string;
+        symbol?: string;
+        side?: string;
+        from?: string;
+        to?: string;
+        limit?: string;
+      }>();
+      const format = resolveFormat(opts);
+      const { client } = makeClient(opts);
+      const result = await client.futuresLiquidations(local);
+      const events = result.data.events;
+      const set: RowSet = {
+        columns: ["ts", "exchange", "symbol", "side", "price", "quantity", "notional"],
+        rows: events.map((e) => ({
+          ts: new Date(e.ts).toISOString(),
+          exchange: e.exchange,
+          symbol: e.symbol,
+          side: e.side,
+          price: e.price,
+          quantity: e.quantity,
+          notional: e.notional,
+        })),
+      };
+      if (format === "table") {
+        process.stdout.write(
+          pc.dim(`from ${isoOrRaw(result.data.from)}  to ${isoOrRaw(result.data.to)}`) + "\n",
+        );
+      }
+      if (result.data.truncated) {
+        process.stderr.write(
+          pc.yellow(
+            `note: the window holds more than ${events.length.toLocaleString("en-US")} events; these are the newest. Narrow --from/--to or raise --limit (at most 1000).`,
+          ) + "\n",
+        );
+      }
+      // Which feeds are throttled comes from the catalog, never a local list.
+      if (events.length) {
+        try {
+          const { data } = await client.catalog();
+          const throttled = (data.futures?.venues ?? [])
+            .filter((v) => v.liquidations === "lowerBound")
+            .map((v) => v.venue)
+            .filter((venue) => events.some((e) => e.exchange === venue));
+          if (throttled.length) {
+            const verb =
+              throttled.length === 1
+                ? "throttles its public liquidation feed, so in a cascade its events are"
+                : "throttle their public liquidation feeds, so in a cascade their events are";
+            process.stderr.write(
+              pc.dim(`note: ${joinWords(throttled)} ${verb} a lower bound.`) + "\n",
+            );
+          }
+        } catch {
+          // The note is a courtesy; the events stand on their own.
+        }
       }
       emit(set, format, result, opts, result.data);
     }),

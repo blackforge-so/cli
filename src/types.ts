@@ -44,6 +44,99 @@ export interface CatalogMetric {
 export interface Catalog {
   venues: CatalogVenue[];
   metrics: CatalogMetric[];
+  /** Linear futures contracts. Absent on an API that serves no futures. */
+  futures?: FuturesCatalog;
+}
+
+// --- Futures ---------------------------------------------------------------
+// Linear futures contracts (perpetual and dated), one row per contract per
+// minute, served under /v1/futures/*. The catalog block is its own shape: the
+// spot `metrics` array never carries a futures column.
+
+export interface FuturesCatalogVenue {
+  venue: string;
+  minPlan: Plan;
+  /** How complete the venue's public liquidation feed is; null when it publishes none. */
+  liquidations?: "complete" | "lowerBound" | null;
+}
+
+export interface FuturesCatalogMetric {
+  key: string;
+  label: string;
+  family: string;
+  unit: string;
+  nullable?: boolean;
+  description?: string;
+  /** How minute values roll up into 5m/1h/1d: last, sum, or (bitmask), none. */
+  rollup?: string;
+  plottable?: boolean;
+  intervals?: string[];
+  /** null on internal columns, which belong to no plan. */
+  minPlan: Plan | null;
+  /** Venues where this column is always null (the venue publishes no such value). */
+  nullOn?: string[];
+  /** Measures the recorder, not the market: catalogued, never sold. */
+  internal?: boolean;
+}
+
+export interface FuturesCatalog {
+  venues: FuturesCatalogVenue[];
+  metrics: FuturesCatalogMetric[];
+  /** The futures quality-flag decode table (its own bits, not the spot table). */
+  qualityBits?: QualityBit[];
+  liquidationEvents?: {
+    minPlan: Plan;
+    fields: Array<{ key: string; unit?: string; description?: string }>;
+  };
+  /** When the futures rows start (ISO). */
+  availableFrom?: string | null;
+  /** How many days back any plan may read futures. */
+  historyDays?: number;
+}
+
+export interface FuturesLatest {
+  ts: number; // epoch ms, 0 when the contract has no row
+  interval?: string;
+  /** Text columns (baseAsset, quoteAsset, contractType) are strings. */
+  values: Record<string, number | string | null>;
+  quality?: Quality;
+}
+
+export interface FuturesSeries extends Series {
+  interval?: string;
+}
+
+export interface FuturesTopRow {
+  exchange: string;
+  symbol: string;
+  baseAsset: string;
+  value: number | null;
+}
+
+export interface FuturesTop {
+  metric: string;
+  interval?: string;
+  ts: number; // epoch ms, end of the ranked bucket
+  order?: "asc" | "desc" | string;
+  rows: FuturesTopRow[];
+}
+
+export interface LiquidationEvent {
+  ts: number; // epoch ms, venue time
+  exchange: string;
+  symbol: string;
+  /** The POSITION liquidated: a long is closed by a forced sell. */
+  side: "long" | "short" | string;
+  price: number | null;
+  quantity: number | null;
+  notional: number | null;
+}
+
+export interface FuturesLiquidations {
+  from: number | string;
+  to: number | string;
+  events: LiquidationEvent[];
+  truncated?: boolean;
 }
 
 export type Symbols = string[];

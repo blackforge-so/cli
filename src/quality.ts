@@ -38,6 +38,15 @@ export function bitsFromCatalog(catalog: Catalog): QualityBit[] {
 }
 
 /**
+ * The FUTURES decode table: its own bits (QUOTE_MISSING, TRADES_PARTIAL...),
+ * served once as `futures.qualityBits`. Never the spot table: the same bit
+ * number means a different thing on a futures row.
+ */
+export function futuresBitsFromCatalog(catalog: Catalog): QualityBit[] {
+  return catalog.futures?.qualityBits ?? [];
+}
+
+/**
  * Decode a mask into flag names using the catalog table. Bits the table does
  * not name fall back to their raw mask; the unknown sentinel bit is skipped,
  * since callers report it separately and neutrally.

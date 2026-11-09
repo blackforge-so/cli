@@ -1,5 +1,9 @@
 import type {
   Catalog,
+  FuturesLatest,
+  FuturesLiquidations,
+  FuturesSeries,
+  FuturesTop,
   Latest,
   ResponseMeta,
   Series,
@@ -150,5 +154,77 @@ export class BlackForgeClient {
 
   usage(): Promise<ApiResult<Usage>> {
     return this.request<Usage>("/v1/usage");
+  }
+
+  // --- futures (linear contracts, /v1/futures/*) ---------------------------
+
+  futuresSymbols(exchange: string): Promise<ApiResult<Symbols>> {
+    return this.request<Symbols>("/v1/futures/symbols", { exchange });
+  }
+
+  futuresLatest(
+    exchange: string,
+    symbol: string,
+    columns?: string,
+  ): Promise<ApiResult<FuturesLatest>> {
+    return this.request<FuturesLatest>("/v1/futures/latest", {
+      exchange,
+      symbol,
+      columns,
+    });
+  }
+
+  futuresSeries(params: {
+    exchange: string;
+    symbol: string;
+    metric: string;
+    interval?: string;
+    from?: string;
+    to?: string;
+  }): Promise<ApiResult<FuturesSeries>> {
+    return this.request<FuturesSeries>("/v1/futures/series", {
+      exchange: params.exchange,
+      symbol: params.symbol,
+      metric: params.metric,
+      interval: params.interval,
+      from: params.from,
+      to: params.to,
+    });
+  }
+
+  futuresTop(params: {
+    metric: string;
+    exchange?: string;
+    baseAsset?: string;
+    contractType?: string;
+    order?: string;
+    limit?: string;
+  }): Promise<ApiResult<FuturesTop>> {
+    return this.request<FuturesTop>("/v1/futures/top", {
+      metric: params.metric,
+      exchange: params.exchange,
+      baseAsset: params.baseAsset,
+      contractType: params.contractType,
+      order: params.order,
+      limit: params.limit,
+    });
+  }
+
+  futuresLiquidations(params: {
+    exchange?: string;
+    symbol?: string;
+    side?: string;
+    from?: string;
+    to?: string;
+    limit?: string;
+  }): Promise<ApiResult<FuturesLiquidations>> {
+    return this.request<FuturesLiquidations>("/v1/futures/liquidations", {
+      exchange: params.exchange,
+      symbol: params.symbol,
+      side: params.side,
+      from: params.from,
+      to: params.to,
+      limit: params.limit,
+    });
   }
 }
