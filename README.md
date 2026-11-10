@@ -71,7 +71,8 @@ the newest buckets and the CLI says so on stderr.
 The same key reads the **linear futures contracts** (perpetual and dated) on the major
 futures venues: mark, index, last and best bid and ask prices, funding rate and next funding
 time, open interest, taker buy and sell flow, and liquidations, per contract in real time.
-History is a rolling 60 days, from 7 November 2026. Contracts are spelled the way each venue
+History is kept like spot, from 7 November 2026: each plan reads futures through its usual
+history window. Contracts are spelled the way each venue
 spells them (`BTCUSDT` on binance and bybit, `BTC-USDT-SWAP` on okx, `BTC_USDT` on gate,
 `XBTUSDTM` on kucoin); `baseAsset` is the same coin on every venue.
 

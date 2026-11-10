@@ -493,7 +493,7 @@ const FUTURES_CATALOG = {
     ],
     liquidationEvents: { minPlan: "max", fields: [] },
     availableFrom: "2026-11-07T22:04:00.000Z",
-    historyDays: 60,
+    historyDays: null,
   },
 };
 
@@ -677,7 +677,7 @@ describe("futures commands (stub API)", () => {
 
       const table = await cli(["catalog", "--futures", "--base-url", base, "--output", "table"]);
       expect(table.stdout).toContain("Futures venues: binance (free, liquidations: lower bound), bybit (pro, liquidations: complete), mexc (free)");
-      expect(table.stdout).toContain("History: the last 60 days, rows from 2026-11-07");
+      expect(table.stdout).toContain("History: kept like spot (your plan's history window), rows from 2026-11-07");
       expect(table.stdout).toContain("Liquidation events: max plan and up");
 
       const json = await cli(["catalog", "--futures", "--base-url", base, "--output", "json"]);

@@ -90,8 +90,8 @@ export interface FuturesCatalog {
   };
   /** When the futures rows start (ISO). */
   availableFrom?: string | null;
-  /** How many days back any plan may read futures. */
-  historyDays?: number;
+  /** A futures retention cap in days, or null: kept like spot, the plan's history window applies. */
+  historyDays?: number | null;
 }
 
 export interface FuturesLatest {

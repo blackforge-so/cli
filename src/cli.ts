@@ -338,7 +338,11 @@ function emitFuturesCatalog(
     process.stdout.write(pc.bold("Futures venues: ") + venues + "\n");
     if (fut.historyDays !== undefined || fut.availableFrom) {
       const days =
-        fut.historyDays !== undefined ? `the last ${fut.historyDays} days` : "";
+        typeof fut.historyDays === "number"
+          ? `the last ${fut.historyDays} days`
+          : fut.historyDays === null
+            ? "kept like spot (your plan's history window)"
+            : "";
       const from = fut.availableFrom
         ? `rows from ${fut.availableFrom.slice(0, 10)}`
         : "";
